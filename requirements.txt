@@ -1,0 +1,9 @@
+torch
+torchvision
+opencv-python
+pillow
+nibabel
+customtkinter
+numpy
+scikit-image
+reportlab
