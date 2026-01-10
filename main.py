@@ -688,83 +688,288 @@ class MedicalApp(ctk.CTk):
         self.clear_screen()
         
         # Header
-        top_bar = ctk.CTkFrame(self, height=50, fg_color="transparent")
-        top_bar.pack(fill="x", padx=20, pady=10)
-        ctk.CTkButton(top_bar, text="← Back", width=100, command=self.show_dashboard, fg_color="gray").pack(side="left")
-        ctk.CTkLabel(top_bar, text="Previous Medical Reports", font=("Roboto", 20, "bold")).pack(side="left", padx=20)
+        top_bar = ctk.CTkFrame(self, height=60, fg_color=COLOR_WHITE)
+        top_bar.pack(fill="x", side="top")
+        ctk.CTkButton(top_bar, text="← Back", width=100, command=self.show_dashboard, fg_color="gray").pack(side="left", padx=20)
+        ctk.CTkLabel(top_bar, text="Medical Reports History", font=("Roboto", 20, "bold"), text_color=COLOR_TEXT).pack(side="left", padx=20)
         
+        # Filter Bar
+        filter_frame = ctk.CTkFrame(self, height=60, fg_color=COLOR_BG)
+        filter_frame.pack(fill="x", padx=20, pady=10)
+        
+        self.search_var = ctk.StringVar()
+        self.search_var.trace("w", self.filter_reports)
+        ctk.CTkEntry(filter_frame, placeholder_text="Search Patient Name...", 
+                   textvariable=self.search_var, width=300).pack(side="left", padx=10)
+        
+        self.sort_var = ctk.StringVar(value="Newest First")
+        ctk.CTkOptionMenu(filter_frame, values=["Newest First", "Oldest First", "Name A-Z"], 
+                        command=self.sort_reports, variable=self.sort_var, fg_color=COLOR_WHITE, text_color=COLOR_TEXT).pack(side="left", padx=10)
+
         # Main List
         self.history_frame = ctk.CTkScrollableFrame(self, fg_color=COLOR_WHITE)
         self.history_frame.pack(fill="both", expand=True, padx=20, pady=10)
         
-        # Populate
+        # Load Data
+        self.all_reports = []
         session = self.auth.Session()
         try:
-            reports = session.query(Report).order_by(Report.created_at.desc()).all()
-            if not reports:
-                ctk.CTkLabel(self.history_frame, text="No reports found in database.").pack(pady=20)
-            
-            for r in reports:
-                self.create_report_row(r)
-                
+            self.all_reports = session.query(Report).order_by(Report.created_at.desc()).all()
+            self.render_report_list(self.all_reports)
         finally:
             session.close()
 
+    def filter_reports(self, *args):
+        search_term = self.search_var.get().lower()
+        if not search_term:
+            self.render_report_list(self.all_reports)
+            return
+            
+        filtered = [r for r in self.all_reports if search_term in r.patient_name.lower()]
+        self.render_report_list(filtered)
+
+    def sort_reports(self, sort_option):
+        # We need to re-fetch or sort in memory. Memory is faster for small lists.
+        # But for correctness with 'all_reports', let's sort the CURRENTLY FILTERED list? 
+        # For simplicity, let's sort self.all_reports and re-filter.
+        
+        if sort_option == "Newest First":
+            self.all_reports.sort(key=lambda x: x.created_at, reverse=True)
+        elif sort_option == "Oldest First":
+            self.all_reports.sort(key=lambda x: x.created_at)
+        elif sort_option == "Name A-Z":
+            self.all_reports.sort(key=lambda x: x.patient_name)
+            
+        # Re-apply filter
+        self.filter_reports()
+
+    def render_report_list(self, reports):
+        for widget in self.history_frame.winfo_children():
+            widget.destroy()
+            
+        if not reports:
+            ctk.CTkLabel(self.history_frame, text="No reports found matching criteria.", text_color="gray").pack(pady=20)
+            
+        for r in reports:
+            self.create_report_row(r)
+
     def create_report_row(self, report):
-        row = ctk.CTkFrame(self.history_frame, fg_color="#F8FAFC", corner_radius=10)
+        row = ctk.CTkFrame(self.history_frame, fg_color=COLOR_BG, corner_radius=10)
         row.pack(fill="x", pady=5, padx=5)
         
-        # Info
-        info = f"Date: {report.created_at.strftime('%Y-%m-%d')} | Patient: {report.patient_name} | Pred: {report.prediction}"
-        ctk.CTkLabel(row, text=info, font=("Roboto", 14), text_color=COLOR_TEXT).pack(side="left", padx=15, pady=15)
+        # Color Code Status
+        status_color = "#10B981" if "Non Demented" in report.prediction else "#EF4444" 
         
-        # View Button
-        ctk.CTkButton(row, text="View Details", width=100, 
-                    command=lambda r=report: self.show_report_details(r)).pack(side="right", padx=15)
+        ctk.CTkLabel(row, text=f"DATE: {report.created_at.strftime('%Y-%m-%d')}", font=("Roboto", 12, "bold"), text_color="gray").pack(side="left", padx=15)
+        ctk.CTkLabel(row, text=report.patient_name, font=("Roboto", 16, "bold"), text_color=COLOR_PRIMARY).pack(side="left", padx=15)
+        ctk.CTkLabel(row, text=report.prediction, font=("Roboto", 14), text_color=status_color).pack(side="left", padx=15)
+        
+        ctk.CTkButton(row, text="View / Print", width=120, fg_color=COLOR_SECONDARY,
+                    command=lambda r=report: self.show_report_details(r)).pack(side="right", padx=15, pady=10)
 
     def show_report_details(self, report):
-        # Open a new top-level window
+        # Open a new top-level window styled like a document
         detail_win = ctk.CTkToplevel(self)
-        detail_win.title(f"Report Details: {report.patient_name}")
-        detail_win.geometry("800x600")
-        detail_win.attributes('-topmost', True)
+        detail_win.title(f"Medical Report: {report.patient_name}")
+        detail_win.geometry("900x800")
+        detail_win.configure(fg_color="#525659") # Dark grey background like Adobe Reader
         
-        scroll = ctk.CTkScrollableFrame(detail_win, fg_color=COLOR_WHITE)
-        scroll.pack(fill="both", expand=True)
+        # Paper Sheet
+        paper = ctk.CTkScrollableFrame(detail_win, fg_color="white", corner_radius=0, width=800)
+        paper.pack(pady=20, fill="y", expand=True) # Centered
         
-        # Text Details
-        ctk.CTkLabel(scroll, text="Report Details", font=("Roboto", 20, "bold")).pack(pady=10)
+        # --- HEADER ---
+        header = ctk.CTkFrame(paper, fg_color="transparent")
+        header.pack(fill="x", padx=40, pady=30)
         
-        details = f"""
-        Patient Name: {report.patient_name}
-        Age: {report.age}
-        Gender: {report.gender}
-        Contact: {report.phone}
+        # Logo Mockup
+        ctk.CTkLabel(header, text="NeuroScan AI", font=("Times", 28, "bold"), text_color="#00695C").pack(anchor="w")
+        ctk.CTkLabel(header, text="Medical Diagnostic Report", font=("Arial", 12), text_color="gray").pack(anchor="w")
+        ctk.CTkFrame(header, height=2, fg_color="black").pack(fill="x", pady=10)
         
-        Medical History:
-        {report.medical_history}
+        # --- PATIENT INFO & RESULT in Grid ---
+        info_grid = ctk.CTkFrame(paper, fg_color="#F8FAFC")
+        info_grid.pack(fill="x", padx=40, pady=10)
         
-        Diagnosis: {report.prediction}
-        Confidence: {report.confidence}
-        Date: {report.created_at}
-        """
-        ctk.CTkLabel(scroll, text=details, justify="left", font=("Roboto", 14)).pack(pady=10, padx=20)
+        ctk.CTkLabel(info_grid, text="PATIENT DETAILS", font=("Arial", 12, "bold"), text_color="gray").grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        ctk.CTkLabel(info_grid, text=f"Name: {report.patient_name}", font=("Arial", 14), text_color="black").grid(row=1, column=0, sticky="w", padx=10)
+        ctk.CTkLabel(info_grid, text=f"Age: {report.age} | Gender: {report.gender}", font=("Arial", 14), text_color="black").grid(row=2, column=0, sticky="w", padx=10)
+        ctk.CTkLabel(info_grid, text=f"Phone: {report.phone}", font=("Arial", 14), text_color="black").grid(row=3, column=0, sticky="w", padx=10)
         
-        # Images (Reconstruct from Bytes)
-        img_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        img_frame.pack(pady=20)
+        ctk.CTkLabel(info_grid, text="DIAGNOSIS", font=("Arial", 12, "bold"), text_color="gray").grid(row=0, column=1, sticky="w", padx=40, pady=5)
+        
+        status_color = "green" if "Non" in report.prediction else "red"
+        ctk.CTkLabel(info_grid, text=report.prediction, font=("Arial", 18, "bold"), text_color=status_color).grid(row=1, column=1, sticky="w", padx=40)
+        ctk.CTkLabel(info_grid, text=f"Confidence: {report.confidence}", font=("Arial", 14), text_color="black").grid(row=2, column=1, sticky="w", padx=40)
+
+        # --- HISTORY ---
+        ctk.CTkLabel(paper, text="Medical History:", font=("Arial", 12, "bold"), text_color=COLOR_TEXT).pack(anchor="w", padx=40, pady=(20, 5))
+        ctk.CTkLabel(paper, text=report.medical_history, font=("Arial", 12), text_color="black", wraplength=700, justify="left").pack(anchor="w", padx=40)
+
+        # --- IMAGES ---
+        img_container = ctk.CTkFrame(paper, fg_color="transparent")
+        img_container.pack(pady=30)
+        
+        def load_blob(blob):
+            if not blob: return None
+            return Image.open(io.BytesIO(blob))
+            
+        orig = load_blob(report.original_image)
+        heat = load_blob(report.heatmap_image)
+        
+        if orig:
+            orig.thumbnail((300, 300))
+            ctk_orig = ctk.CTkImage(orig, size=orig.size)
+            f1 = ctk.CTkFrame(img_container, fg_color="transparent")
+            f1.pack(side="left", padx=10)
+            ctk.CTkLabel(f1, image=ctk_orig, text="").pack()
+            ctk.CTkLabel(f1, text="Original Scan", text_color="gray").pack()
+            
+        if heat:
+            heat.thumbnail((300, 300))
+            ctk_heat = ctk.CTkImage(heat, size=heat.size)
+            f2 = ctk.CTkFrame(img_container, fg_color="transparent")
+            f2.pack(side="left", padx=10)
+            ctk.CTkLabel(f2, image=ctk_heat, text="").pack()
+            ctk.CTkLabel(f2, text="AI Analysis", text_color="gray").pack()
+
+        # --- FOOTER ---
+        ctk.CTkLabel(paper, text=f"Report Generated: {report.created_at}", font=("Arial", 10), text_color="gray").pack(side="bottom", pady=20)
+        
+        # --- RE-EXPORT BUTTON (Floating) ---
+        float_frame = ctk.CTkFrame(detail_win, fg_color="transparent")
+        float_frame.place(relx=0.5, rely=0.9, anchor="center")
+        
+        ctk.CTkButton(float_frame, text="🖨 Reprint / Export PDF", fg_color=COLOR_PRIMARY,
+                    command=lambda: self.re_export_pdf(report)).pack()
+
+    def re_export_pdf(self, report):
+        # 1. Determine Default Path (Desktop/Reports)
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        reports_dir = os.path.join(desktop, "NeuroScan_Reports")
+        if not os.path.exists(reports_dir):
+            try:
+                os.makedirs(reports_dir)
+            except:
+                reports_dir = desktop # Fallback
+                
+        dt_str = report.created_at.strftime('%Y%m%d')
+        default_file = f"Copy_Report_{report.patient_name.replace(' ', '_')}_{dt_str}.pdf"
+        
+        save_path = filedialog.asksaveasfilename(defaultextension=".pdf", 
+                                                initialdir=reports_dir,
+                                                initialfile=default_file, 
+                                                filetypes=[("PDF Document", "*.pdf")])
+        if not save_path: return
         
         try:
-            if report.heatmap_image:
-                bio = io.BytesIO(report.heatmap_image)
-                pil_img = Image.open(bio)
-                pil_img.thumbnail((300, 300))
-                ctk_img = ctk.CTkImage(pil_img, size=pil_img.size)
+            c = canvas.Canvas(save_path, pagesize=letter)
+            width, height = letter
+            
+            # --- SAME LAYOUT AS NEW SCAN ---
+            
+            # 3. Branding Header
+            if os.path.exists("logo.png"):
+                c.drawImage("logo.png", 50, height - 100, width=50, height=50, preserveAspectRatio=True, mask='auto')
+            
+            c.setFont("Helvetica-Bold", 24)
+            c.setFillColorRGB(0, 0.4, 0.4) # Teal-ish
+            c.drawString(110, height - 70, "NeuroScan AI")
+            
+            c.setFont("Helvetica", 12)
+            c.setFillColorRGB(0.5, 0.5, 0.5)
+            c.drawString(110, height - 90, "Advanced Medical Diagnostic Report")
+            
+            c.setStrokeColorRGB(0.8, 0.8, 0.8)
+            c.line(50, height - 110, width - 50, height - 110)
+
+            # 4. Patient Info Block
+            c.setFont("Helvetica-Bold", 14)
+            c.setFillColorRGB(0.2, 0.2, 0.2)
+            c.drawString(50, height - 150, "Patient Details")
+            
+            c.setFont("Helvetica", 12)
+            y = height - 180
+            c.drawString(50, y, f"Full Name: {report.patient_name}")
+            c.drawString(300, y, f"Age: {report.age}")
+            y -= 20
+            c.drawString(50, y, f"Gender: {report.gender}")
+            c.drawString(300, y, f"Phone: {report.phone}")
+            y -= 25
+            c.drawString(50, y, "Medical History:")
+            c.setFont("Helvetica-Oblique", 10)
+            history_text = report.medical_history.strip()[:200]
+            c.drawString(50, y - 15, history_text if history_text else "None provided.")
+
+            # 5. Diagnostic Results
+            y -= 60
+            c.setFont("Helvetica-Bold", 14)
+            c.setFillColorRGB(0.2, 0.2, 0.2)
+            c.drawString(50, y, "Diagnostic Assessment")
+            
+            # Result Box
+            y -= 30
+            c.setFillColorRGB(0.95, 0.97, 1.0)
+            c.rect(50, y - 40, width - 100, 50, fill=1, stroke=0)
+            
+            c.setFillColorRGB(0, 0, 0)
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(70, y - 25, f"Prediction: {report.prediction}")
+            
+            c.setFont("Helvetica", 12)
+            c.drawString(400, y - 25, f"Confidence: {report.confidence}")
+
+            # 6. Images
+            y -= 80
+            c.drawString(50, y, "Brain Imaging Analysis")
+            
+            # Re-save images from blobs to temp
+            temp_orig = "temp_re_orig.jpg"
+            temp_heat = "temp_re_heat.jpg"
+            
+            has_orig = False
+            has_heat = False
+            
+            if report.original_image:
+                i1 = Image.open(io.BytesIO(report.original_image))
+                i1.save(temp_orig)
+                has_orig = True
                 
-                ctk.CTkLabel(img_frame, text="AI Analysis").pack()
-                ctk.CTkLabel(img_frame, image=ctk_img, text="").pack()
+            if report.heatmap_image:
+                i2 = Image.open(io.BytesIO(report.heatmap_image))
+                i2.save(temp_heat)
+                has_heat = True
+
+            img_y = y - 220
+            if has_orig:
+                c.drawImage(temp_orig, 50, img_y, width=200, height=200, preserveAspectRatio=True)
+            if has_heat:
+                c.drawImage(temp_heat, 300, img_y, width=200, height=200, preserveAspectRatio=True)
+            
+            c.setFont("Helvetica-Oblique", 10)
+            c.drawCentredString(150, img_y - 15, "Original Scan")
+            c.drawCentredString(400, img_y - 15, "AI Attention Map")
+
+            # 7. Footer
+            # We use the CURRENT LOGGED IN USER as the one re-printing? Or the original?
+            # Usually reprints show original context, but let's just say "Printed by..."
+            printer_name = self.current_user.full_name or self.current_user.username
+            c.setFont("Helvetica", 10)
+            c.drawCentredString(width/2, 50, f"Reprint Generated by: {printer_name} | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            c.drawCentredString(width/2, 35, "NeuroScan AI Assistive Technology - Historical Record Copy")
+
+            c.showPage()
+            c.save()
+            
+            # Cleanup
+            try:
+                if has_orig: os.remove(temp_orig)
+                if has_heat: os.remove(temp_heat)
+            except: pass
+            
+            messagebox.showinfo("Success", "Report Re-exported Successfully.")
         except Exception as e:
-            print(f"Error loading images: {e}")
+            messagebox.showerror("Error", str(e))
 
     # =========================================================================
     # SYSTEM
