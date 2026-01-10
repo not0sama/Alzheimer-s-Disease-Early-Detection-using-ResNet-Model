@@ -7,3 +7,4 @@ customtkinter
 numpy
 scikit-image
 reportlab
+HD-BET

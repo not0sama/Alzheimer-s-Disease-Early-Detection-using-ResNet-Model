@@ -37,7 +37,12 @@ def open_file_dialog_native():
         temp_root.attributes('-topmost', True)
         try:
             return filedialog.askopenfilename(parent=temp_root, title="Select MRI Scan",
-                filetypes=[("Images", "*.jpg *.png *.bmp"), ("Medical", "*.nii *.nii.gz")])
+                filetypes=[
+                    ("All Supported Files", "*.nii *.nii.gz *.jpg *.jpeg *.png *.bmp"),
+                    ("Medical MRI", "*.nii *.nii.gz"),
+                    ("Standard Images", "*.jpg *.jpeg *.png *.bmp"),
+                    ("All Files", "*.*")
+                ])
         finally: temp_root.destroy()
 
 class AlzheimerApp(ctk.CTk):

@@ -58,8 +58,60 @@ class Preprocessor:
         The model was trained on AXIAL images, so we MUST extract along axis 0.
         """
         try:
-            # 1. Load the 3D volume
-            nii_img = nib.load(path)
+            # 1. Attempt Skull Stripping using HD-BET (if installed)
+            load_path = path 
+            temp_stripped_path = None
+
+            try:
+                # HD-BET 2.0+ API Usage
+                from HD_BET.run import run_hd_bet
+                # Legacy API check - if this works, great (it likely won't on v2.0)
+                
+                print("🧠 Performing Skull Stripping with HD-BET (Legacy)...")
+                # ... legacy code ...
+            except ImportError:
+                # Try New API
+                try:
+                    from HD_BET.entry_point import get_hdbet_predictor, hdbet_predict, maybe_download_parameters
+                    import torch
+                    
+                    print("🧠 Performing Skull Stripping with HD-BET (v2.0)...")
+                    
+                    import tempfile
+                    tf = tempfile.NamedTemporaryFile(suffix='.nii.gz', delete=False) 
+                    # HD-BET often prefers .nii.gz
+                    temp_stripped_path = tf.name
+                    tf.close()
+
+                    # Ensure parameters are downloaded
+                    maybe_download_parameters()
+                    
+                    # Init Predictor (using CPU for Mac/Windows compatibility as requested)
+                    # Note: HD-BET 2.0 defaults to CUDA, so we must specify CPU
+                    device = torch.device('cpu')
+                    predictor = get_hdbet_predictor(device=device)
+                    
+                    # Run Prediction
+                    hdbet_predict(path, temp_stripped_path, predictor)
+                    
+                    load_path = temp_stripped_path
+                    print("✅ Skull Stripping Complete.")
+
+                except ImportError:
+                    print("⚠️ HD-BET not installed or API mismatch. Skipping. (pip install HD-BET)")
+                except Exception as e:
+                    print(f"⚠️ Skull stripping failed: {e}")
+
+            except Exception as e:
+                 # Catch-all for the first block if it wasn't an ImportError but something else
+                 print(f"⚠️ Skull stripping failed (Legacy): {e}")
+
+            # 2. Load the 3D volume
+            if not os.path.exists(load_path):
+                # Fallback if the output file wasn't created
+                load_path = path
+
+            nii_img = nib.load(load_path)
             nii_data = nii_img.get_fdata()
 
             # 2. Find the middle AXIAL slice (axis 0)
@@ -80,13 +132,25 @@ class Preprocessor:
             slice_rgb = np.stack((slice_2d,)*3, axis=-1)
             
             # 5. Convert to PIL Image and Transform
+            # 5. Convert to PIL Image and Transform
             image = Image.fromarray(slice_rgb)
             tensor = self.transform(image)
             
+            # Cleanup temp file if it exists
+            if temp_stripped_path and os.path.exists(temp_stripped_path):
+                try:
+                    os.remove(temp_stripped_path)
+                except: pass
+
             return tensor.unsqueeze(0) # Add batch dimension
 
         except Exception as e:
             print(f"Error processing NII file: {e}")
+            # Cleanup temp file on error too
+            if 'temp_stripped_path' in locals() and temp_stripped_path and os.path.exists(temp_stripped_path):
+                try:
+                    os.remove(temp_stripped_path)
+                except: pass
             return None
 
 # --- Quick Test Block ---
