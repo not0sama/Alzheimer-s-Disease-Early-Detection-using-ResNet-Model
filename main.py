@@ -471,35 +471,70 @@ class MedicalApp(ctk.CTk):
             messagebox.showwarning("System", "AI Model is still loading in background...")
             return
 
+        # 1. Update UI to Loading State
+        self.result_label.configure(text="Processing Scan... (this may take a moment)", text_color=COLOR_PRIMARY)
+        self.confidence_label.configure(text="")
+        if hasattr(self, 'upload_btn'): self.upload_btn.configure(state="disabled")
+        self.update() # Force UI refresh
+        
+        # 2. Start Thread
+        threading.Thread(target=self._inference_thread, args=(path,), daemon=True).start()
+        
+    def _inference_thread(self, path):
         try:
-            self.result_label.configure(text="Analyzing...", text_color=COLOR_PRIMARY)
-            self.update()
-            
+            # Heavy lifting here
             pred_class, confidence, overlay_img = self.predictor.predict_with_heatmap(path)
             
-            # Store State
-            self.current_prediction_text = pred_class
-            self.current_confidence_text = f"{confidence:.2f}%"
-            self.current_overlay_pil = overlay_img
-            self.current_original_pil = Image.open(path).convert("RGB") if not path.endswith('.nii') and not path.endswith('.gz') else overlay_img # NII fallback
-            
-            # Update UI
-            color = "#EF4444" if "Demented" in pred_class and "Non" not in pred_class else "#10B981"
-            if "Very Mild" in pred_class: color = "#F59E0B"
-            
-            self.result_label.configure(text=f"Diagnosis: {pred_class}", text_color=color)
-            self.confidence_label.configure(text=f"Confidence: {confidence:.2f}%")
-            
-            # Default to Heatmap ON? Or OFF? User asked for toggle. Let's start with Original.
-            self.heatmap_switch.deselect()
-            self.update_display_image(self.current_original_pil)
-            
-            # Auto-open report tab?
-            if not self.is_report_open:
-                self.toggle_report_panel()
+            # Prepare data for UI thread
+            # Handle NII fallback for original image logic same as before roughly, 
+            # but predict_with_heatmap usually returns the slice as overlay_img base if it was NII.
+            # If it's a standard image, we can open it again.
+            if not path.endswith('.nii') and not path.endswith('.gz'):
+                original_pil = Image.open(path).convert("RGB")
+            else:
+                # For NII, the overlay_img *is* the processed slice with heatmap. 
+                # We ideally want the 'clean' slice. 
+                # But our predictor currently returns overlay. 
+                # Let's just use overlay_img as base for now or copy it.
+                # Actually, predict_with_heatmap returns (class, conf, overlay_pil).
+                # If we want the pure original, we rely on what we have. 
+                # For now let's use the overlay logic from before.
+                original_pil = overlay_img 
+
+            # Schedule UI Update on Main Thread
+            self.after(0, self._on_inference_complete, pred_class, confidence, overlay_img, original_pil)
             
         except Exception as e:
-            messagebox.showerror("Error", f"Inference failed: {e}")
+            self.after(0, lambda: messagebox.showerror("Error", f"Inference failed: {e}"))
+            self.after(0, self._reset_scan_ui)
+            
+    def _on_inference_complete(self, pred_class, confidence, overlay_img, original_pil):
+        # Store State
+        self.current_prediction_text = pred_class
+        self.current_confidence_text = f"{confidence:.2f}%"
+        self.current_overlay_pil = overlay_img
+        self.current_original_pil = original_pil
+        
+        # Update UI
+        color = "#EF4444" if "Demented" in pred_class and "Non" not in pred_class else "#10B981"
+        if "Very Mild" in pred_class: color = "#F59E0B"
+        
+        self.result_label.configure(text=f"Diagnosis: {pred_class}", text_color=color)
+        self.confidence_label.configure(text=f"Confidence: {confidence:.2f}%")
+        
+        if hasattr(self, 'upload_btn'): self.upload_btn.configure(state="normal")
+        
+        # Default to Heatmap OFF (Original)
+        self.heatmap_switch.deselect()
+        self.update_display_image(self.current_original_pil)
+        
+        # Auto-open report tab
+        if not self.is_report_open:
+            self.toggle_report_panel()
+
+    def _reset_scan_ui(self):
+        self.result_label.configure(text="Waiting for input...", text_color="gray")
+        if hasattr(self, 'upload_btn'): self.upload_btn.configure(state="normal")
 
     # ---------------------------------------------------------
     # PDF EXPORT LOGIC
