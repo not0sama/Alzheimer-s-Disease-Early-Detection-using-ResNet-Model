@@ -8,3 +8,6 @@ numpy
 scikit-image
 reportlab
 HD-BET
+sqlalchemy
+psycopg2-binary
+prompt_toolkit
