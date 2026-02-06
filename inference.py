@@ -57,11 +57,12 @@ class AlzheimerPredictor:
 
     def predict_with_heatmap(self, image_path):
         """
-        Returns: Prediction, Confidence, and the Heatmap Overlay Image
+        Returns: Prediction, Confidence, Overlay Image, and Original Image
         """
         # 1. Preprocess
         tensor = self.preprocessor.load_and_preprocess(image_path)
-        if tensor is None: return "Error", 0.0, None
+        if tensor is None: return "Error", 0.0, None, None
+
         tensor = tensor.to(self.device)
 
         # 2. Register Hooks on the last convolutional layer (layer4)
@@ -91,18 +92,21 @@ class AlzheimerPredictor:
         cam = cv2.resize(cam, (224, 224))
         cam = (cam - np.min(cam)) / (np.max(cam) + 1e-8)
 
-        # 6. Create Overlay Image
-        heatmap_colored = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
-        heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-        
-        # Get original image resized to 224x224 for blending
-        # We cheat a bit and grab the tensor data to show exactly what the model saw
+        # 6. Get original image (denormalized from tensor)
+        # This is what the model actually saw after preprocessing
         orig_img = tensor.squeeze().permute(1, 2, 0).cpu().numpy()
         # Denormalize
         orig_img = orig_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406])
         orig_img = np.clip(orig_img, 0, 1)
         orig_img = (orig_img * 255).astype(np.uint8)
+        
+        # Convert to PIL for consistency
+        original_pil = Image.fromarray(orig_img)
 
+        # 7. Create Overlay Image (blend original with heatmap)
+        heatmap_colored = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
+        heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+        
         overlay = cv2.addWeighted(orig_img, 0.6, heatmap_colored, 0.4, 0)
         overlay_pil = Image.fromarray(overlay)
 
@@ -110,4 +114,4 @@ class AlzheimerPredictor:
         handle_b.remove()
         handle_f.remove()
 
-        return self.class_names[predicted_idx.item()], confidence.item() * 100, overlay_pil
+        return self.class_names[predicted_idx.item()], confidence.item() * 100, overlay_pil, original_pil

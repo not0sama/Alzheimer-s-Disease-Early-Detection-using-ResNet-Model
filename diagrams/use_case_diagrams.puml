@@ -1,0 +1,267 @@
+@startuml NeuroScan AI - Use Case Diagrams
+
+' ============================================
+' ACTORS
+' ============================================
+actor "Medical Professional\n(Doctor/Technician)" as User
+actor "System Administrator" as Admin
+database "PostgreSQL Database" as DB
+component "AI Model\n(ResNet50)" as AI
+
+' ============================================
+' USE CASE 1: LOGIN
+' ============================================
+package "Authentication System" {
+  usecase "UC1: Login" as UC1
+  usecase "Validate Credentials" as UC1_1
+  usecase "Load User Profile" as UC1_2
+  usecase "Show Dashboard" as UC1_3
+  usecase "Display Error Message" as UC1_4
+}
+
+User --> UC1
+UC1 ..> UC1_1 : <<include>>
+UC1_1 ..> UC1_2 : <<extend>>\n[valid credentials]
+UC1_1 ..> UC1_4 : <<extend>>\n[invalid credentials]
+UC1_2 ..> UC1_3 : <<include>>
+UC1_1 --> DB : query user
+UC1_2 --> DB : fetch user data
+
+' ============================================
+' USE CASE 2: CREATE NEW USER
+' ============================================
+package "User Management" {
+  usecase "UC2: Create New User" as UC2
+  usecase "Verify Admin Password" as UC2_1
+  usecase "Validate User Data" as UC2_2
+  usecase "Check Username Availability" as UC2_3
+  usecase "Save User to Database" as UC2_4
+  usecase "Show Registration Form" as UC2_5
+}
+
+Admin --> UC2
+UC2 ..> UC2_1 : <<include>>
+UC2_1 ..> UC2_5 : <<extend>>\n[password valid]
+UC2_5 ..> UC2_2 : <<include>>
+UC2_2 ..> UC2_3 : <<include>>
+UC2_3 ..> UC2_4 : <<extend>>\n[username available]
+UC2_4 --> DB : insert new user
+
+' ============================================
+' USE CASE 3: PERFORM NEW SCAN
+' ============================================
+package "Diagnostic System" {
+  usecase "UC3: Perform New Scan" as UC3
+  usecase "Upload Brain Scan Image" as UC3_1
+  usecase "Preprocess Image" as UC3_2
+  usecase "Run AI Inference" as UC3_3
+  usecase "Generate Grad-CAM Heatmap" as UC3_4
+  usecase "Display Results" as UC3_5
+  usecase "Fill Patient Details" as UC3_6
+  usecase "Toggle Heatmap View" as UC3_7
+  usecase "Clear Scan" as UC3_8
+}
+
+User --> UC3
+UC3 ..> UC3_1 : <<include>>
+UC3_1 ..> UC3_2 : <<include>>
+UC3_2 ..> UC3_3 : <<include>>
+UC3_3 ..> UC3_4 : <<include>>
+UC3_4 ..> UC3_5 : <<include>>
+UC3 ..> UC3_6 : <<extend>>\n[patient info needed]
+UC3 ..> UC3_7 : <<extend>>\n[toggle requested]
+UC3 ..> UC3_8 : <<extend>>\n[clear requested]
+UC3_3 --> AI : predict disease class
+UC3_4 --> AI : generate attention map
+
+' ============================================
+' USE CASE 4: EXPORT REPORT
+' ============================================
+package "Report Export System" {
+  usecase "UC4: Export Report" as UC4
+  usecase "Validate Scan Results" as UC4_1
+  usecase "Select Save Location" as UC4_2
+  usecase "Generate PDF Document" as UC4_3
+  usecase "Add Patient Information" as UC4_4
+  usecase "Add Diagnostic Results" as UC4_5
+  usecase "Add Brain Images" as UC4_6
+  usecase "Add Branding & Footer" as UC4_7
+  usecase "Save PDF File" as UC4_8
+}
+
+User --> UC4
+UC4 ..> UC4_1 : <<include>>
+UC4_1 ..> UC4_2 : <<extend>>\n[results exist]
+UC4_2 ..> UC4_3 : <<include>>
+UC4_3 ..> UC4_4 : <<include>>
+UC4_3 ..> UC4_5 : <<include>>
+UC4_3 ..> UC4_6 : <<include>>
+UC4_3 ..> UC4_7 : <<include>>
+UC4_7 ..> UC4_8 : <<include>>
+
+' ============================================
+' USE CASE 5: VIEW REPORT FROM HISTORY
+' ============================================
+package "Report Viewing System" {
+  usecase "UC5: View Report from History" as UC5
+  usecase "Load All Reports" as UC5_1
+  usecase "Select Report" as UC5_2
+  usecase "Display Report Details" as UC5_3
+  usecase "Show Patient Info" as UC5_4
+  usecase "Show Diagnosis" as UC5_5
+  usecase "Show Medical History" as UC5_6
+  usecase "Show Brain Images" as UC5_7
+  usecase "Re-export PDF" as UC5_8
+}
+
+User --> UC5
+UC5 ..> UC5_1 : <<include>>
+UC5_1 ..> UC5_2 : <<include>>
+UC5_2 ..> UC5_3 : <<include>>
+UC5_3 ..> UC5_4 : <<include>>
+UC5_3 ..> UC5_5 : <<include>>
+UC5_3 ..> UC5_6 : <<include>>
+UC5_3 ..> UC5_7 : <<include>>
+UC5 ..> UC5_8 : <<extend>>\n[re-export requested]
+UC5_1 --> DB : query all reports
+UC5_3 --> DB : load report images
+
+' ============================================
+' USE CASE 6: SEARCH REPORTS IN HISTORY
+' ============================================
+package "Report Search System" {
+  usecase "UC6: Search Reports in History" as UC6
+  usecase "Enter Search Term" as UC6_1
+  usecase "Filter by Patient Name" as UC6_2
+  usecase "Sort Reports" as UC6_3
+  usecase "Display Filtered Results" as UC6_4
+  usecase "Sort by Date (Newest)" as UC6_5
+  usecase "Sort by Date (Oldest)" as UC6_6
+  usecase "Sort by Name (A-Z)" as UC6_7
+}
+
+User --> UC6
+UC6 ..> UC6_1 : <<include>>
+UC6_1 ..> UC6_2 : <<include>>
+UC6_2 ..> UC6_4 : <<include>>
+UC6 ..> UC6_3 : <<extend>>\n[sort requested]
+UC6_3 ..> UC6_5 : <<extend>>\n[newest first]
+UC6_3 ..> UC6_6 : <<extend>>\n[oldest first]
+UC6_3 ..> UC6_7 : <<extend>>\n[alphabetical]
+UC6_2 --> DB : query reports
+
+' ============================================
+' ADDITIONAL USE CASE: SAVE REPORT TO DATABASE
+' ============================================
+package "Report Storage System" {
+  usecase "UC7: Save Report to Database" as UC7
+  usecase "Verify User Password" as UC7_1
+  usecase "Convert Images to BLOB" as UC7_2
+  usecase "Store Report Data" as UC7_3
+  usecase "Confirm Save Success" as UC7_4
+}
+
+User --> UC7
+UC7 ..> UC7_1 : <<include>>
+UC7_1 ..> UC7_2 : <<extend>>\n[password valid]
+UC7_2 ..> UC7_3 : <<include>>
+UC7_3 ..> UC7_4 : <<include>>
+UC7_3 --> DB : insert report
+
+' ============================================
+' RELATIONSHIPS & NOTES
+' ============================================
+
+note right of UC1
+  **Login Flow:**
+  1. User enters username/password
+  2. System validates credentials
+  3. On success: load dashboard
+  4. On failure: show error
+  
+  **Saved Profiles:**
+  - Quick access sidebar
+  - Auto-fill username
+end note
+
+note right of UC2
+  **Registration Requirements:**
+  - Admin password required
+  - Full name, specialty, phone
+  - Unique username
+  - Password (plain text - not hashed)
+  
+  **Default Admin:**
+  - Username: admin
+  - Password: admin
+end note
+
+note right of UC3
+  **Scan Process:**
+  1. Upload NIfTI (.nii) file
+  2. Preprocess to 224x224 tensor
+  3. ResNet50 inference
+  4. Generate Grad-CAM heatmap
+  5. Display prediction + confidence
+  
+  **Prediction Classes:**
+  - Mild Demented
+  - Moderate Demented
+  - Non Demented
+  - Very Mild Demented
+end note
+
+note right of UC4
+  **PDF Report Contents:**
+  - NeuroScan AI branding
+  - Patient demographics
+  - Medical history
+  - Diagnostic results
+  - Original + heatmap images
+  - Doctor signature & timestamp
+  
+  **Default Location:**
+  Desktop/NeuroScan_Reports/
+end note
+
+note right of UC5
+  **Report Details Window:**
+  - Professional document layout
+  - Patient information grid
+  - Color-coded diagnosis
+  - Side-by-side images
+  - Re-export capability
+  
+  **Image Storage:**
+  - BLOB format in PostgreSQL
+  - Original + heatmap stored
+end note
+
+note right of UC6
+  **Search Features:**
+  - Real-time patient name filter
+  - Case-insensitive search
+  
+  **Sort Options:**
+  - Newest First (default)
+  - Oldest First
+  - Name A-Z
+  
+  **Display:**
+  - Scrollable list view
+  - Click to view details
+end note
+
+note right of UC7
+  **Security:**
+  - Password confirmation required
+  - Links report to current user
+  
+  **Data Stored:**
+  - All patient details
+  - Prediction + confidence
+  - Both images as JPEG BLOB
+  - Timestamp & creator ID
+end note
+
+@enduml

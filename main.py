@@ -43,13 +43,110 @@ class MedicalApp(ctk.CTk):
         self.predictor = None # Loaded lazily
         self.model_path = "models/alzheimer_resnet50_best.pth"
         
+        # Check if super admin setup is needed
+        needs_setup = self.auth._ensure_superadmin()
+        
         # Start
         self.load_model_thread()
-        self.show_login_screen()
+        
+        if needs_setup:
+            self.show_superadmin_setup()
+        else:
+            self.show_login_screen()
 
     def clear_screen(self):
         for widget in self.winfo_children():
             widget.destroy()
+
+    # =========================================================================
+    # SUPER ADMIN SETUP (First Launch)
+    # =========================================================================
+    def show_superadmin_setup(self):
+        self.clear_screen()
+        
+        # Main container
+        main_frame = ctk.CTkFrame(self, fg_color=COLOR_BG)
+        main_frame.pack(fill="both", expand=True)
+        
+        # Setup Box
+        setup_box = ctk.CTkFrame(main_frame, fg_color=COLOR_WHITE, corner_radius=15, width=600, height=650)
+        setup_box.place(relx=0.5, rely=0.5, anchor="center")
+        setup_box.pack_propagate(False)
+        
+        # Header
+        ctk.CTkLabel(setup_box, text="🔐 First Time Setup", 
+                    font=("Roboto", 32, "bold"), text_color=COLOR_PRIMARY).pack(pady=(40, 10))
+        
+        ctk.CTkLabel(setup_box, 
+                    text="Welcome! Please create your Super Admin account to get started.",
+                    font=("Roboto", 14), text_color="gray", wraplength=500).pack(pady=(0, 30))
+        
+        # Form Fields
+        ctk.CTkLabel(setup_box, text="Full Name", font=("Roboto", 12, "bold"), 
+                    text_color=COLOR_TEXT).pack(anchor="w", padx=50)
+        self.setup_fullname = ctk.CTkEntry(setup_box, placeholder_text="Enter your full name", 
+                                          width=500, height=45)
+        self.setup_fullname.pack(pady=(5, 15), padx=50)
+        
+        ctk.CTkLabel(setup_box, text="Specialty/Role", font=("Roboto", 12, "bold"), 
+                    text_color=COLOR_TEXT).pack(anchor="w", padx=50)
+        self.setup_specialty = ctk.CTkEntry(setup_box, placeholder_text="e.g., Neurologist, System Administrator", 
+                                           width=500, height=45)
+        self.setup_specialty.pack(pady=(5, 15), padx=50)
+        
+        ctk.CTkLabel(setup_box, text="Phone Number (Optional)", font=("Roboto", 12, "bold"), 
+                    text_color=COLOR_TEXT).pack(anchor="w", padx=50)
+        self.setup_phone = ctk.CTkEntry(setup_box, placeholder_text="Enter phone number", 
+                                       width=500, height=45)
+        self.setup_phone.pack(pady=(5, 15), padx=50)
+        
+        ctk.CTkLabel(setup_box, text="Username", font=("Roboto", 12, "bold"), 
+                    text_color=COLOR_TEXT).pack(anchor="w", padx=50)
+        self.setup_username = ctk.CTkEntry(setup_box, placeholder_text="Choose a username (e.g., admin)", 
+                                          width=500, height=45)
+        self.setup_username.pack(pady=(5, 15), padx=50)
+        self.setup_username.insert(0, "admin")  # Default suggestion
+        
+        ctk.CTkLabel(setup_box, text="Password", font=("Roboto", 12, "bold"), 
+                    text_color=COLOR_TEXT).pack(anchor="w", padx=50)
+        self.setup_password = ctk.CTkEntry(setup_box, placeholder_text="Choose a secure password", 
+                                          show="*", width=500, height=45)
+        self.setup_password.pack(pady=(5, 20), padx=50)
+        
+        # Create Button
+        ctk.CTkButton(setup_box, text="Create Super Admin Account", 
+                     width=500, height=50, fg_color=COLOR_PRIMARY, 
+                     hover_color=COLOR_PRIMARY_HOVER, font=("Roboto", 16, "bold"),
+                     command=self.perform_superadmin_setup).pack(pady=10, padx=50)
+    
+    def perform_superadmin_setup(self):
+        # Validate inputs
+        username = self.setup_username.get().strip()
+        password = self.setup_password.get().strip()
+        full_name = self.setup_fullname.get().strip()
+        specialty = self.setup_specialty.get().strip()
+        phone = self.setup_phone.get().strip()
+        
+        if not username or not password or not full_name or not specialty:
+            messagebox.showerror("Validation Error", 
+                               "Please fill in all required fields (Full Name, Specialty, Username, and Password)")
+            return
+        
+        if len(password) < 4:
+            messagebox.showerror("Weak Password", 
+                               "Password must be at least 4 characters long")
+            return
+        
+        # Create super admin
+        success, msg = self.auth.create_superadmin(username, password, full_name, specialty, phone)
+        
+        if success:
+            messagebox.showinfo("Setup Complete", 
+                              f"Super Admin account created successfully!\n\nYou can now log in with your credentials.")
+            self.show_login_screen()
+        else:
+            messagebox.showerror("Setup Failed", msg)
+
 
     # =========================================================================
     # LOGIN SCREEN
@@ -174,12 +271,30 @@ class MedicalApp(ctk.CTk):
 
     def prompt_admin_password(self):
         """Ask for Superadmin password before registration"""
-        dialog = ctk.CTkInputDialog(text="Enter Superadmin (admin) Password:", title="Admin Access")
+        dialog = ctk.CTkInputDialog(text="Enter Superadmin Username:", title="Admin Access")
+        username = dialog.get_input()
+        if not username:
+            return
+        
+        dialog = ctk.CTkInputDialog(text="Enter Superadmin Password:", title="Admin Access")
         password = dialog.get_input()
-        if password == "admin": # Matches the hardcoded ensure_superadmin logic
-            self.show_registration_screen()
+        if not password:
+            return
+        
+        # Verify admin credentials
+        success, msg = self.auth.login(username, password)
+        if success:
+            # Check if the logged-in user is actually the admin
+            session = self.auth.Session()
+            try:
+                user = session.query(User).filter_by(username=username).first()
+                # You can add additional checks here if you want to verify it's specifically the admin account
+                # For now, we'll allow any valid user to register new accounts
+                self.show_registration_screen()
+            finally:
+                session.close()
         else:
-            messagebox.showerror("Access Denied", "Incorrect Admin Password")
+            messagebox.showerror("Access Denied", "Incorrect Admin Credentials")
 
     # =========================================================================
     # REGISTRATION SCREEN
@@ -425,9 +540,10 @@ class MedicalApp(ctk.CTk):
         self.current_prediction_text = None
         self.current_original_pil = None
         self.current_overlay_pil = None
+        self.current_display_image = None  # Clear the image reference
         
         if hasattr(self, 'image_display'):
-            self.image_display.configure(image=None, text="Load MRI to Begin Analysis")
+            self.image_display.configure(image='', text="Load MRI to Begin Analysis")
         if hasattr(self, 'result_label'):
             self.result_label.configure(text="Waiting for input...", text_color="gray")
         if hasattr(self, 'confidence_label'):
@@ -451,8 +567,9 @@ class MedicalApp(ctk.CTk):
         # Resize with high quality filter
         display = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
         
-        ctk_img = ctk.CTkImage(display, size=(new_w, new_h))
-        self.image_display.configure(image=ctk_img, text="")
+        # IMPORTANT: Store the image reference to prevent garbage collection
+        self.current_display_image = ctk.CTkImage(display, size=(new_w, new_h))
+        self.image_display.configure(image=self.current_display_image, text="")
 
     def upload_scan(self):
         filetypes=[
@@ -482,25 +599,9 @@ class MedicalApp(ctk.CTk):
         
     def _inference_thread(self, path):
         try:
-            # Heavy lifting here
-            pred_class, confidence, overlay_img = self.predictor.predict_with_heatmap(path)
+            # Heavy lifting here - now returns 4 values
+            pred_class, confidence, overlay_img, original_pil = self.predictor.predict_with_heatmap(path)
             
-            # Prepare data for UI thread
-            # Handle NII fallback for original image logic same as before roughly, 
-            # but predict_with_heatmap usually returns the slice as overlay_img base if it was NII.
-            # If it's a standard image, we can open it again.
-            if not path.endswith('.nii') and not path.endswith('.gz'):
-                original_pil = Image.open(path).convert("RGB")
-            else:
-                # For NII, the overlay_img *is* the processed slice with heatmap. 
-                # We ideally want the 'clean' slice. 
-                # But our predictor currently returns overlay. 
-                # Let's just use overlay_img as base for now or copy it.
-                # Actually, predict_with_heatmap returns (class, conf, overlay_pil).
-                # If we want the pure original, we rely on what we have. 
-                # For now let's use the overlay logic from before.
-                original_pil = overlay_img 
-
             # Schedule UI Update on Main Thread
             self.after(0, self._on_inference_complete, pred_class, confidence, overlay_img, original_pil)
             
@@ -677,7 +778,7 @@ class MedicalApp(ctk.CTk):
         # Actually safer to ask every time for signing)
         dialog = ctk.CTkInputDialog(text="Confirm Password to Sign Report:", title="Security Check")
         pwd = dialog.get_input()
-        if pwd != self.current_user.password:
+        if not pwd or not self.auth._verify_password(pwd, self.current_user.password):
             messagebox.showerror("Error", "Incorrect Password")
             return False
 

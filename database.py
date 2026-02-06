@@ -25,7 +25,7 @@ class User(Base):
     
     id = Column(Integer, primary_key=True)
     username = Column(String(50), unique=True, nullable=False)
-    password = Column(String(100), nullable=False) # In real app, hash this!
+    password = Column(String(255), nullable=False)  
     full_name = Column(String(100))
     specialty = Column(String(100))
     phone = Column(String(20))

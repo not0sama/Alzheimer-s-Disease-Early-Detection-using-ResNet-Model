@@ -1,0 +1,983 @@
+@startuml NeuroScan AI - Sequence Diagrams
+
+' ============================================
+' SEQUENCE DIAGRAM 1: LOGIN
+' ============================================
+title Sequence Diagram 1: User Login
+
+actor "Medical Professional" as User
+participant "LoginScreen" as UI
+participant "AuthManager" as Auth
+database "PostgreSQL\nDatabase" as DB
+
+User -> UI: Open Application
+activate UI
+UI -> UI: Display Login Form
+UI -> Auth: get_all_users()
+activate Auth
+Auth -> DB: SELECT username, full_name\nFROM users
+activate DB
+DB --> Auth: List of saved profiles
+deactivate DB
+Auth --> UI: User list
+deactivate Auth
+UI -> UI: Populate Sidebar\nwith Saved Profiles
+UI --> User: Show Login Screen
+
+User -> UI: Enter username & password
+User -> UI: Click "Login" button
+
+UI -> Auth: login(username, password)
+activate Auth
+Auth -> DB: SELECT * FROM users\nWHERE username = ?
+activate DB
+
+alt User Found
+    DB --> Auth: User record
+    deactivate DB
+    
+    Auth -> Auth: Compare password\n(plain text)
+    
+    alt Password Matches
+        Auth -> Auth: Set current_user
+        Auth --> UI: (True, "Login Successful")
+        deactivate Auth
+        
+        UI -> UI: Store current_user
+        UI -> UI: clear_screen()
+        UI -> UI: show_dashboard()
+        UI --> User: Display Dashboard
+        
+    else Password Incorrect
+        Auth --> UI: (False, "Invalid Credentials")
+        deactivate Auth
+        UI -> UI: Show Error Dialog
+        UI --> User: "Invalid Credentials"
+    end
+    
+else User Not Found
+    DB --> Auth: None
+    deactivate DB
+    Auth --> UI: (False, "Invalid Credentials")
+    deactivate Auth
+    UI -> UI: Show Error Dialog
+    UI --> User: "Invalid Credentials"
+end
+
+deactivate UI
+
+@enduml
+
+' ============================================
+' SEQUENCE DIAGRAM 2: CREATE NEW USER
+' ============================================
+@startuml Sequence Diagram 2: Create New User
+
+title Sequence Diagram 2: Create New User (Registration)
+
+actor "System Admin" as Admin
+participant "MedicalApp" as App
+participant "PasswordDialog" as Dialog
+participant "RegistrationForm" as RegForm
+participant "AuthManager" as Auth
+database "PostgreSQL\nDatabase" as DB
+
+Admin -> App: Click "Create New User"
+activate App
+
+App -> Dialog: Create Password Dialog
+activate Dialog
+Dialog --> Admin: Show "Enter Admin Password"
+
+Admin -> Dialog: Enter password
+Dialog -> Dialog: get_input()
+Dialog --> App: password_input
+deactivate Dialog
+
+App -> App: Validate password\n(password == "admin")
+
+alt Password Valid
+    App -> RegForm: show_registration_screen()
+    activate RegForm
+    RegForm --> Admin: Display Registration Form
+    
+    Admin -> RegForm: Fill form fields:\n- Full Name\n- Specialty\n- Phone\n- Username\n- Password
+    Admin -> RegForm: Click "Register"
+    
+    RegForm -> RegForm: Get form values
+    RegForm -> Auth: register_user(full_name, specialty,\nphone, username, password)
+    activate Auth
+    
+    Auth -> DB: SELECT * FROM users\nWHERE username = ?
+    activate DB
+    
+    alt Username Available
+        DB --> Auth: None (not found)
+        deactivate DB
+        
+        Auth -> Auth: Create User object
+        note right
+            User(
+                username=username,
+                password=password,
+                full_name=full_name,
+                specialty=specialty,
+                phone=phone
+            )
+        end note
+        
+        Auth -> DB: INSERT INTO users\nVALUES (...)
+        activate DB
+        
+        alt Insert Success
+            DB --> Auth: Success
+            deactivate DB
+            Auth -> DB: COMMIT
+            activate DB
+            DB --> Auth: Committed
+            deactivate DB
+            
+            Auth --> RegForm: (True, "User Registered Successfully")
+            deactivate Auth
+            
+            RegForm -> RegForm: Show Success Dialog
+            RegForm -> App: show_login_screen()
+            deactivate RegForm
+            App --> Admin: Navigate to Login Screen
+            
+        else Insert Failed
+            DB --> Auth: Error
+            deactivate DB
+            Auth --> RegForm: (False, error_message)
+            deactivate Auth
+            RegForm -> RegForm: Show Error Dialog
+            RegForm --> Admin: Display Error
+        end
+        
+    else Username Exists
+        DB --> Auth: User record found
+        deactivate DB
+        Auth --> RegForm: (False, "Username already exists")
+        deactivate Auth
+        RegForm -> RegForm: Show Error Dialog
+        RegForm --> Admin: "Username already exists"
+    end
+    
+else Password Invalid
+    App -> App: Show Error Dialog
+    App --> Admin: "Incorrect Admin Password"
+end
+
+deactivate App
+
+@enduml
+
+' ============================================
+' SEQUENCE DIAGRAM 3: PERFORM NEW SCAN
+' ============================================
+@startuml Sequence Diagram 3: Perform New Scan
+
+title Sequence Diagram 3: Perform New Scan (AI Diagnosis)
+
+actor "Medical Professional" as User
+participant "ScanScreen" as UI
+participant "FileDialog" as FD
+participant "InferenceThread" as Thread
+participant "Preprocessor" as Prep
+participant "AlzheimerPredictor" as AI
+participant "ResNet50\nModel" as Model
+
+User -> UI: Navigate to "New Scan"
+activate UI
+UI -> UI: show_scan_screen()
+UI --> User: Display Scan Interface
+
+User -> UI: Click "Upload Scan"
+UI -> FD: Open File Dialog
+activate FD
+FD --> User: Show file browser
+
+User -> FD: Select .nii file
+FD --> UI: file_path
+deactivate FD
+
+UI -> UI: Validate file extension
+
+alt Valid NIfTI File
+    UI -> UI: update_display_image()\nShow loading state
+    UI -> UI: Disable upload button
+    UI --> User: "Processing Scan..."
+    
+    UI -> Thread: Start inference thread\nrun_inference(path)
+    activate Thread
+    
+    Thread -> Prep: load_and_preprocess(image_path)
+    activate Prep
+    
+    Prep -> Prep: Load NIfTI file
+    note right
+        Using nibabel library:
+        - Read .nii file
+        - Extract 3D volume
+    end note
+    
+    Prep -> Prep: Extract middle slice\nslice = data[:, :, depth//2]
+    Prep -> Prep: Resize to 224x224
+    Prep -> Prep: Normalize pixels\n(mean, std)
+    Prep -> Prep: Convert to PyTorch tensor
+    Prep --> Thread: preprocessed_tensor
+    deactivate Prep
+    
+    Thread -> AI: predict_with_heatmap(image_path)
+    activate AI
+    
+    AI -> Prep: load_and_preprocess(image_path)
+    activate Prep
+    Prep --> AI: tensor
+    deactivate Prep
+    
+    AI -> AI: Move tensor to device (CPU)
+    
+    AI -> Model: Register forward hook\non layer4[-1]
+    activate Model
+    Model --> AI: forward_handle
+    
+    AI -> Model: Register backward hook\non layer4[-1]
+    Model --> AI: backward_handle
+    
+    AI -> Model: model.zero_grad()
+    AI -> Model: output = model(tensor)
+    Model -> Model: Forward propagation\nthrough ResNet50
+    Model -> Model: Capture activations\nin hook
+    Model --> AI: output logits
+    
+    AI -> AI: probabilities = softmax(output)
+    AI -> AI: confidence, predicted_idx =\nmax(probabilities)
+    
+    AI -> AI: Backward pass:\noutput[0, predicted_idx].backward()
+    AI -> Model: Trigger backward hooks
+    Model -> Model: Capture gradients
+    Model --> AI: gradients
+    
+    AI -> AI: Generate Grad-CAM heatmap
+    note right
+        1. Get gradients and activations
+        2. Calculate weights = mean(gradients)
+        3. Weighted sum of feature maps
+        4. Apply ReLU
+        5. Resize to 224x224
+        6. Normalize to [0, 1]
+    end note
+    
+    AI -> AI: Create heatmap overlay
+    note right
+        1. Apply JET colormap
+        2. Blend with original image
+        3. overlay = 0.6*original + 0.4*heatmap
+    end note
+    
+    AI -> Model: Remove hooks
+    Model --> AI: Hooks removed
+    deactivate Model
+    
+    AI --> Thread: (prediction_class,\nconfidence, overlay_image)
+    deactivate AI
+    
+    Thread -> UI: _on_inference_complete(\npred_class, confidence,\noverlay_img, original_pil)
+    deactivate Thread
+    
+    UI -> UI: Update result labels
+    UI -> UI: Display prediction & confidence
+    UI -> UI: Show original image
+    UI -> UI: Show heatmap overlay
+    UI -> UI: Enable export/save buttons
+    UI --> User: Display Results
+    
+    User -> UI: (Optional) Fill patient details
+    User -> UI: (Optional) Toggle heatmap
+    
+    alt Toggle Heatmap
+        UI -> UI: toggle_heatmap()
+        UI -> UI: Switch displayed image
+        UI --> User: Show alternate view
+    end
+    
+else Invalid File
+    UI -> UI: Show Error Dialog
+    UI --> User: "Invalid File Format"
+end
+
+deactivate UI
+
+@enduml
+
+' ============================================
+' SEQUENCE DIAGRAM 4: EXPORT REPORT
+' ============================================
+@startuml Sequence Diagram 4: Export Report (PDF)
+
+title Sequence Diagram 4: Export Report to PDF
+
+actor "Medical Professional" as User
+participant "ScanScreen" as UI
+participant "FileDialog" as FD
+participant "PDFCanvas" as PDF
+participant "FileSystem" as FS
+
+User -> UI: Click "Export PDF"
+activate UI
+
+UI -> UI: Validate prediction exists
+
+alt Prediction Available
+    UI -> UI: Determine default path\nDesktop/NeuroScan_Reports/
+    
+    UI -> FS: Check if reports_dir exists
+    activate FS
+    
+    alt Directory Missing
+        FS --> UI: False
+        UI -> FS: os.makedirs(reports_dir)
+        FS --> UI: Directory created
+    else Directory Exists
+        FS --> UI: True
+    end
+    deactivate FS
+    
+    UI -> UI: Generate default filename\nReport_[PatientName]_[Date].pdf
+    
+    UI -> FD: asksaveasfilename(\ninitialdir=reports_dir,\ninitialfile=default_name)
+    activate FD
+    FD --> User: Show save dialog
+    
+    User -> FD: Choose location & confirm
+    FD --> UI: save_path
+    deactivate FD
+    
+    alt Save Confirmed
+        UI -> PDF: Create Canvas(save_path)
+        activate PDF
+        
+        PDF -> PDF: Set page size (letter)
+        
+        ' Header Section
+        UI -> FS: Check if logo.png exists
+        activate FS
+        alt Logo Exists
+            FS --> UI: True
+            UI -> PDF: drawImage("logo.png",\nx=50, y=height-100)
+        end
+        deactivate FS
+        
+        UI -> PDF: setFont("Helvetica-Bold", 24)
+        UI -> PDF: setFillColorRGB(0, 0.4, 0.4)
+        UI -> PDF: drawString("NeuroScan AI")
+        
+        UI -> PDF: setFont("Helvetica", 12)
+        UI -> PDF: drawString("Advanced Medical\nDiagnostic Report")
+        
+        UI -> PDF: line(50, height-110,\nwidth-50, height-110)
+        
+        ' Patient Details Section
+        UI -> PDF: setFont("Helvetica-Bold", 14)
+        UI -> PDF: drawString("Patient Details")
+        
+        UI -> UI: Get patient data from form
+        UI -> PDF: drawString(f"Full Name: {name}")
+        UI -> PDF: drawString(f"Age: {age}")
+        UI -> PDF: drawString(f"Gender: {gender}")
+        UI -> PDF: drawString(f"Phone: {phone}")
+        UI -> PDF: drawString(f"Medical History:\n{history}")
+        
+        ' Diagnostic Results Section
+        UI -> PDF: setFont("Helvetica-Bold", 14)
+        UI -> PDF: drawString("Diagnostic Assessment")
+        
+        UI -> PDF: setFillColorRGB(0.95, 0.97, 1.0)
+        UI -> PDF: rect(50, y-40, width-100, 50,\nfill=1)
+        
+        UI -> PDF: setFont("Helvetica-Bold", 16)
+        UI -> PDF: drawString(f"Prediction:\n{prediction_class}")
+        UI -> PDF: drawString(f"Confidence:\n{confidence}%")
+        
+        ' Images Section
+        UI -> PDF: drawString("Brain Imaging Analysis")
+        
+        UI -> UI: Save images to temp files
+        UI -> FS: current_original_pil.save(\n"temp_pdf_orig.jpg")
+        activate FS
+        FS --> UI: Temp file created
+        deactivate FS
+        
+        UI -> FS: current_overlay_pil.save(\n"temp_pdf_heat.jpg")
+        activate FS
+        FS --> UI: Temp file created
+        deactivate FS
+        
+        UI -> PDF: drawImage("temp_pdf_orig.jpg",\n50, y, 200, 200)
+        UI -> PDF: drawImage("temp_pdf_heat.jpg",\n300, y, 200, 200)
+        
+        UI -> PDF: drawCentredString("Original Scan")
+        UI -> PDF: drawCentredString("AI Attention Map")
+        
+        ' Footer Section
+        UI -> UI: Get current user info
+        UI -> PDF: drawCentredString(\nf"Report Generated by:\nDr./Tech {doctor_name}")
+        UI -> PDF: drawCentredString(\nf"{timestamp}")
+        UI -> PDF: drawCentredString(\n"NeuroScan AI Assistive Technology")
+        
+        UI -> PDF: save()
+        PDF --> UI: PDF saved
+        deactivate PDF
+        
+        ' Cleanup
+        UI -> FS: os.remove("temp_pdf_orig.jpg")
+        activate FS
+        FS --> UI: Deleted
+        deactivate FS
+        
+        UI -> FS: os.remove("temp_pdf_heat.jpg")
+        activate FS
+        FS --> UI: Deleted
+        deactivate FS
+        
+        UI -> UI: Show Success Dialog
+        UI --> User: "Medical Report\ngenerated successfully"
+        
+    else Save Cancelled
+        UI --> User: Return to scan screen
+    end
+    
+else No Prediction
+    UI -> UI: Show Warning Dialog
+    UI --> User: "No scan results to export"
+end
+
+deactivate UI
+
+@enduml
+
+' ============================================
+' SEQUENCE DIAGRAM 5: VIEW REPORT FROM HISTORY
+' ============================================
+@startuml Sequence Diagram 5: View Report from History
+
+title Sequence Diagram 5: View Report from History
+
+actor "Medical Professional" as User
+participant "HistoryScreen" as UI
+participant "AuthManager" as Auth
+database "PostgreSQL\nDatabase" as DB
+participant "DetailWindow" as Detail
+participant "ImageConverter" as Img
+
+User -> UI: Navigate to "History"
+activate UI
+
+UI -> UI: show_history_screen()
+UI -> Auth: Get database session
+activate Auth
+Auth --> UI: session
+deactivate Auth
+
+UI -> DB: SELECT * FROM reports\nORDER BY created_at DESC
+activate DB
+DB --> UI: List of all reports
+deactivate DB
+
+UI -> UI: Store reports in\nself.all_reports
+UI -> UI: render_report_list(reports)
+
+UI -> UI: Create scrollable frame
+loop For each report
+    UI -> UI: create_report_row(report)
+    note right
+        Display:
+        - Patient Name
+        - Date
+        - Prediction
+        - View button
+    end note
+end
+
+UI --> User: Display Report List
+
+User -> UI: Click on report row
+
+UI -> Detail: Create CTkToplevel window
+activate Detail
+Detail -> Detail: Set window properties\n(900x800, dark grey bg)
+
+Detail -> Detail: Create paper frame\n(white background)
+
+UI -> DB: Load full report data\n(already in memory)
+
+' Header Section
+Detail -> Detail: Display "NeuroScan AI" header
+Detail -> Detail: Draw separator line
+
+' Patient Info Grid
+Detail -> Detail: Create info grid frame
+Detail -> Detail: Display patient details
+note right
+    - Name, Age, Gender, Phone
+    - Medical History
+end note
+
+' Diagnosis Section
+Detail -> Detail: Display "DIAGNOSIS" label
+Detail -> Detail: Set color based on prediction
+note right
+    Green if "Non Demented"
+    Red otherwise
+end note
+Detail -> Detail: Display prediction & confidence
+
+' Images Section
+Detail -> Img: load_blob(report.original_image)
+activate Img
+Img -> Img: Image.open(\nBytesIO(blob))
+Img --> Detail: PIL Image (original)
+deactivate Img
+
+Detail -> Img: load_blob(report.heatmap_image)
+activate Img
+Img -> Img: Image.open(\nBytesIO(blob))
+Img --> Detail: PIL Image (heatmap)
+deactivate Img
+
+Detail -> Detail: Resize images (thumbnail 300x300)
+Detail -> Detail: Convert to CTkImage
+Detail -> Detail: Display side-by-side
+Detail -> Detail: Add image labels
+
+' Footer
+Detail -> Detail: Display timestamp & creator
+
+' Re-export Button
+Detail -> Detail: Create floating button\n"Reprint/Export PDF"
+
+Detail --> User: Show Report Detail Window
+
+alt User Clicks Re-export
+    User -> Detail: Click "Reprint/Export PDF"
+    Detail -> UI: re_export_pdf(report)
+    
+    UI -> UI: Load report data into\ncurrent session
+    note right
+        Set:
+        - current_prediction_text
+        - current_confidence_text
+        - current_original_pil
+        - current_overlay_pil
+        - Patient form fields
+    end note
+    
+    UI -> UI: export_pdf_report()
+    note right: See Sequence Diagram 4
+    UI --> User: PDF exported
+    
+else User Closes Window
+    User -> Detail: Close window
+    Detail --> UI: Window closed
+    deactivate Detail
+end
+
+deactivate UI
+
+@enduml
+
+' ============================================
+' SEQUENCE DIAGRAM 6: SEARCH REPORTS IN HISTORY
+' ============================================
+@startuml Sequence Diagram 6: Search Reports in History
+
+title Sequence Diagram 6: Search and Filter Reports
+
+actor "Medical Professional" as User
+participant "HistoryScreen" as UI
+participant "SearchVar\n(StringVar)" as SearchVar
+participant "SortMenu" as SortMenu
+database "PostgreSQL\nDatabase" as DB
+
+User -> UI: Navigate to "History"
+activate UI
+
+UI -> DB: SELECT * FROM reports\nORDER BY created_at DESC
+activate DB
+DB --> UI: All reports
+deactivate DB
+
+UI -> UI: Store in self.all_reports\n(master list)
+
+UI -> SearchVar: Create StringVar()
+activate SearchVar
+
+UI -> SearchVar: trace("w", filter_reports)
+note right
+    Callback triggered on
+    every keystroke
+end note
+
+UI -> SortMenu: Create OptionMenu\nwith sort options
+activate SortMenu
+
+UI -> UI: render_report_list(all_reports)
+UI --> User: Display full report list
+
+' === SEARCH FLOW ===
+User -> UI: Type in search box
+UI -> SearchVar: Set value (keystroke)
+SearchVar -> UI: Trigger trace callback\nfilter_reports()
+
+UI -> SearchVar: get() value
+SearchVar --> UI: search_term
+deactivate SearchVar
+
+UI -> UI: Convert to lowercase
+
+alt Search Term Empty
+    UI -> UI: render_report_list(all_reports)
+    UI --> User: Show all reports
+    
+else Search Term Present
+    UI -> UI: Filter reports
+    note right
+        filtered = [r for r in all_reports
+                   if search_term in 
+                   r.patient_name.lower()]
+    end note
+    
+    UI -> UI: render_report_list(filtered)
+    UI --> User: Show filtered results
+end
+
+' === SORT FLOW ===
+User -> SortMenu: Select sort option
+SortMenu -> UI: Trigger command callback\nsort_reports(option)
+
+UI -> SortMenu: Get selected value
+SortMenu --> UI: sort_option
+deactivate SortMenu
+
+alt Sort: "Newest First"
+    UI -> UI: Sort by created_at DESC
+    note right
+        all_reports.sort(
+            key=lambda r: r.created_at,
+            reverse=True
+        )
+    end note
+    
+else Sort: "Oldest First"
+    UI -> UI: Sort by created_at ASC
+    note right
+        all_reports.sort(
+            key=lambda r: r.created_at,
+            reverse=False
+        )
+    end note
+    
+else Sort: "Name A-Z"
+    UI -> UI: Sort by patient_name ASC
+    note right
+        all_reports.sort(
+            key=lambda r: r.patient_name.lower()
+        )
+    end note
+end
+
+UI -> UI: render_report_list(all_reports)
+UI --> User: Show sorted results
+
+' === VIEW SELECTED REPORT ===
+User -> UI: Click on report
+UI -> UI: show_report_details(report)
+note right: See Sequence Diagram 5
+
+deactivate UI
+
+@enduml
+
+' ============================================
+' SEQUENCE DIAGRAM 7: SAVE REPORT TO DATABASE
+' ============================================
+@startuml Sequence Diagram 7: Save Report to Database
+
+title Sequence Diagram 7: Save Report to Database
+
+actor "Medical Professional" as User
+participant "ScanScreen" as UI
+participant "PasswordDialog" as Dialog
+participant "AuthManager" as Auth
+database "PostgreSQL\nDatabase" as DB
+participant "ImageConverter" as Img
+
+User -> UI: Click "Save to Database"
+activate UI
+
+UI -> UI: Validate prediction exists
+
+alt Prediction Available
+    UI -> Dialog: Create CTkInputDialog(\n"Confirm Password to Sign Report")
+    activate Dialog
+    Dialog --> User: Show password prompt
+    
+    User -> Dialog: Enter password
+    Dialog -> Dialog: get_input()
+    Dialog --> UI: password_input
+    deactivate Dialog
+    
+    UI -> UI: Compare with\ncurrent_user.password
+    
+    alt Password Correct
+        UI -> Auth: Get database session
+        activate Auth
+        Auth --> UI: session
+        deactivate Auth
+        
+        UI -> UI: Collect patient data
+        note right
+            - patient_name
+            - age, gender, phone
+            - medical_history
+        end note
+        
+        UI -> UI: Collect diagnostic data
+        note right
+            - prediction
+            - confidence
+        end note
+        
+        UI -> Img: Convert original image to BLOB
+        activate Img
+        Img -> Img: Create BytesIO buffer
+        Img -> Img: current_original_pil.save(\nbuf, format='JPEG')
+        Img -> Img: buf.getvalue()
+        Img --> UI: original_blob
+        deactivate Img
+        
+        UI -> Img: Convert heatmap image to BLOB
+        activate Img
+        Img -> Img: Create BytesIO buffer
+        Img -> Img: current_overlay_pil.save(\nbuf, format='JPEG')
+        Img -> Img: buf.getvalue()
+        Img --> UI: heatmap_blob
+        deactivate Img
+        
+        UI -> UI: Create Report object
+        note right
+            Report(
+                patient_name=name,
+                age=age,
+                gender=gender,
+                phone=phone,
+                medical_history=history,
+                prediction=pred_class,
+                confidence=confidence,
+                created_by_user_id=current_user.id,
+                original_image=original_blob,
+                heatmap_image=heatmap_blob
+            )
+        end note
+        
+        UI -> DB: session.add(new_report)
+        activate DB
+        
+        UI -> DB: session.commit()
+        
+        alt Commit Success
+            DB --> UI: Success
+            deactivate DB
+            
+            UI -> UI: Show Success Dialog
+            UI --> User: "Report saved to\nDatabase successfully"
+            
+        else Commit Failed
+            DB --> UI: Exception
+            deactivate DB
+            
+            UI -> DB: session.rollback()
+            activate DB
+            DB --> UI: Rolled back
+            deactivate DB
+            
+            UI -> UI: Show Error Dialog
+            UI --> User: Display error message
+        end
+        
+        UI -> DB: session.close()
+        activate DB
+        DB --> UI: Session closed
+        deactivate DB
+        
+    else Password Incorrect
+        UI -> UI: Show Error Dialog
+        UI --> User: "Incorrect Password"
+    end
+    
+else No Prediction
+    UI -> UI: Show Warning Dialog
+    UI --> User: "Please run a scan first"
+end
+
+deactivate UI
+
+@enduml
+
+' ============================================
+' BONUS SEQUENCE DIAGRAM 8: SYSTEM INITIALIZATION
+' ============================================
+@startuml Sequence Diagram 8: System Initialization
+
+title Sequence Diagram 8: System Initialization
+
+participant "Main" as Main
+participant "MedicalApp" as App
+participant "AuthManager" as Auth
+database "PostgreSQL\nServer" as PG
+participant "ModelLoader\nThread" as Thread
+participant "AlzheimerPredictor" as AI
+
+-> Main: python main.py
+activate Main
+
+Main -> App: Create MedicalApp()
+activate App
+
+App -> App: Set window properties
+note right
+    - Title: "NeuroScan AI"
+    - Size: 1280x800
+    - Colors: Teal theme
+end note
+
+' === AUTHENTICATION INITIALIZATION ===
+App -> Auth: Create AuthManager(self)
+activate Auth
+
+Auth -> Auth: Call init_db()
+Auth -> PG: Connect to default\npostgres database
+activate PG
+
+Auth -> PG: Check if 'azdDB' exists
+alt Database Missing
+    PG --> Auth: Not found
+    Auth -> PG: CREATE DATABASE "azdDB"
+    PG --> Auth: Database created
+else Database Exists
+    PG --> Auth: Found
+end
+
+Auth -> PG: Connect to azdDB
+Auth -> PG: CREATE TABLE IF NOT EXISTS users
+Auth -> PG: CREATE TABLE IF NOT EXISTS reports
+PG --> Auth: Tables ready
+deactivate PG
+
+Auth -> Auth: _ensure_superadmin()
+Auth -> PG: SELECT * FROM users\nWHERE username='admin'
+activate PG
+
+alt Admin Missing
+    PG --> Auth: None
+    Auth -> Auth: Create admin user
+    note right
+        User(
+            username="admin",
+            password="admin",
+            full_name="Super Admin",
+            specialty="System Administrator"
+        )
+    end note
+    Auth -> PG: INSERT INTO users
+    Auth -> PG: COMMIT
+    PG --> Auth: Admin created
+else Admin Exists
+    PG --> Auth: Admin record
+end
+deactivate PG
+
+Auth --> App: AuthManager ready
+deactivate Auth
+
+' === MODEL INITIALIZATION (PARALLEL) ===
+App -> Thread: Start background thread\nload_model_thread()
+activate Thread
+
+Thread -> Thread: Check model file exists
+note right
+    Path: models/alzheimer_resnet50.pth
+end note
+
+alt Model File Exists
+    Thread -> AI: Create AlzheimerPredictor(\nmodel_path)
+    activate AI
+    
+    AI -> AI: Set device = CPU
+    AI -> AI: Define class names
+    note right
+        ['Mild Demented',
+         'Moderate Demented',
+         'Non Demented',
+         'Very Mild Demented']
+    end note
+    
+    AI -> AI: _build_model()
+    AI -> AI: Create ResNet50 architecture
+    note right
+        - Load ResNet50 base
+        - Replace FC layer:
+          Linear(2048, 512) → ReLU →
+          Dropout(0.5) → Linear(512, 4)
+    end note
+    
+    AI -> AI: Load state_dict from file
+    AI -> AI: Fix DataParallel keys\n(remove 'module.' prefix)
+    AI -> AI: model.load_state_dict()
+    AI -> AI: model.eval()
+    AI -> AI: model.to(device)
+    
+    AI -> AI: Create Preprocessor()
+    
+    AI --> Thread: Predictor ready
+    deactivate AI
+    
+    Thread -> App: Set self.predictor
+    Thread --> App: Model loaded ✓
+    
+else Model File Missing
+    Thread --> App: self.predictor = None
+    note right
+        User will see warning
+        when trying to scan
+    end note
+end
+
+deactivate Thread
+
+' === UI INITIALIZATION ===
+App -> App: show_login_screen()
+App -> App: Create login UI elements
+note right
+    - Username entry
+    - Password entry
+    - Saved profiles sidebar
+    - Login/Register buttons
+end note
+
+App --> Main: Application ready
+deactivate App
+
+Main -> App: mainloop()
+activate App
+App --> Main: Running...
+
+note over App
+    Application now waiting
+    for user interactions
+end note
+
+@enduml
+
+@enduml

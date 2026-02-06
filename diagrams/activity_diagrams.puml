@@ -1,0 +1,629 @@
+@startuml NeuroScan AI - Activity Diagrams
+
+' ============================================
+' ACTIVITY DIAGRAM 1: LOGIN
+' ============================================
+title Activity Diagram 1: User Login
+
+|User|
+start
+:Open Application;
+:View Login Screen;
+note right
+  Login screen shows:
+  - Username input field
+  - Password input field
+  - Collapsible sidebar with saved profiles
+end note
+
+:Enter Username and Password;
+
+|#AntiqueWhite|System|
+:Receive Login Request;
+:Query Database for User;
+
+if (User Exists?) then (yes)
+  :Retrieve User Record;
+  if (Password Matches?) then (yes)
+    :Set Current User Session;
+    :Load User Profile Data;
+    |User|
+    :Navigate to Dashboard;
+    :Display Welcome Message;
+    stop
+  else (no)
+    |User|
+    :Display Error:\n"Invalid Credentials";
+    :Remain on Login Screen;
+    stop
+  endif
+else (no)
+  |User|
+  :Display Error:\n"Invalid Credentials";
+  :Remain on Login Screen;
+  stop
+endif
+
+@enduml
+
+' ============================================
+' ACTIVITY DIAGRAM 2: CREATE NEW USER
+' ============================================
+@startuml Activity Diagram 2: Create New User
+
+title Activity Diagram 2: Create New User (Registration)
+
+|Admin/User|
+start
+:Click "Create New User" Button;
+
+|#AntiqueWhite|System|
+:Display Admin Password Dialog;
+
+|Admin/User|
+:Enter Admin Password;
+
+|#AntiqueWhite|System|
+:Validate Admin Password;
+
+if (Password == "admin"?) then (yes)
+  :Show Registration Form;
+  
+  |Admin/User|
+  :Fill Registration Form;
+  note right
+    Required fields:
+    - Full Name
+    - Specialty
+    - Phone Number
+    - Username
+    - Password
+  end note
+  
+  :Submit Registration;
+  
+  |#AntiqueWhite|System|
+  :Validate Form Data;
+  
+  if (All Fields Valid?) then (yes)
+    :Check Username Availability;
+    
+    if (Username Available?) then (yes)
+      :Create User Object;
+      :Hash/Store Password;
+      :Insert into Database;
+      
+      if (Database Insert Success?) then (yes)
+        |Admin/User|
+        :Display Success Message;
+        :Navigate to Login Screen;
+        stop
+      else (no)
+        |Admin/User|
+        :Display Error:\n"Database Error";
+        :Remain on Registration Form;
+        stop
+      endif
+      
+    else (no - username exists)
+      |Admin/User|
+      :Display Error:\n"Username Already Exists";
+      :Remain on Registration Form;
+      stop
+    endif
+    
+  else (no - validation failed)
+    |Admin/User|
+    :Display Validation Errors;
+    :Remain on Registration Form;
+    stop
+  endif
+  
+else (no - wrong password)
+  |Admin/User|
+  :Display Error:\n"Incorrect Admin Password";
+  :Return to Previous Screen;
+  stop
+endif
+
+@enduml
+
+' ============================================
+' ACTIVITY DIAGRAM 3: PERFORM NEW SCAN
+' ============================================
+@startuml Activity Diagram 3: Perform New Scan
+
+title Activity Diagram 3: Perform New Scan (AI Diagnosis)
+
+|Medical Professional|
+start
+:Navigate to "New Scan" Screen;
+
+|#AntiqueWhite|System|
+:Display Scan Interface;
+note right
+  Interface components:
+  - Large image canvas
+  - Upload button
+  - Patient details form (collapsible)
+  - Heatmap toggle switch
+  - Clear button
+end note
+
+|Medical Professional|
+:Click "Upload Scan" Button;
+:Select NIfTI (.nii) File;
+
+|#AntiqueWhite|System|
+:Validate File Format;
+
+if (Valid NIfTI File?) then (yes)
+  :Load File Path;
+  
+  fork
+    :Display "Processing..." Message;
+    :Disable Upload Button;
+  fork again
+    |#LightBlue|Preprocessing Thread|
+    :Read NIfTI File;
+    :Extract Middle Slice;
+    :Resize to 224x224;
+    :Normalize Pixel Values;
+    :Convert to Tensor;
+    
+    |#LightGreen|AI Inference Thread|
+    if (Model Loaded?) then (yes)
+      :Register Grad-CAM Hooks;
+      :Forward Pass through ResNet50;
+      :Calculate Softmax Probabilities;
+      :Get Predicted Class & Confidence;
+      :Backward Pass for Gradients;
+      :Generate Grad-CAM Heatmap;
+      :Create Overlay Image;
+      :Remove Hooks;
+    else (no - still loading)
+      |Medical Professional|
+      :Display Warning:\n"Model Still Loading";
+      stop
+    endif
+  end fork
+  
+  |#AntiqueWhite|System|
+  :Update UI with Results;
+  :Display Prediction Class;
+  :Display Confidence Score;
+  :Show Original Image;
+  :Show Heatmap Overlay;
+  :Enable Export/Save Buttons;
+  
+  |Medical Professional|
+  
+  while (Additional Actions?) is (yes)
+    if (Action Type?) then (Fill Patient Details)
+      :Expand Patient Form;
+      :Enter Patient Information;
+    elseif (Toggle Heatmap) then
+      |#AntiqueWhite|System|
+      :Switch Between\nOriginal/Heatmap View;
+    elseif (Clear Scan) then
+      |#AntiqueWhite|System|
+      :Reset All Fields;
+      :Clear Images;
+      :Reset Prediction;
+    elseif (Export Report) then
+      :Proceed to Export Flow;
+      note right: See Activity Diagram 4
+    elseif (Save to Database) then
+      :Proceed to Save Flow;
+      note right: See Activity Diagram 7
+    endif
+  endwhile (done)
+  
+  stop
+  
+else (no - invalid file)
+  |Medical Professional|
+  :Display Error:\n"Invalid File Format";
+  stop
+endif
+
+@enduml
+
+' ============================================
+' ACTIVITY DIAGRAM 4: EXPORT REPORT
+' ============================================
+@startuml Activity Diagram 4: Export Report (PDF Generation)
+
+title Activity Diagram 4: Export Report to PDF
+
+|Medical Professional|
+start
+:Click "Export PDF" Button;
+
+|#AntiqueWhite|System|
+:Validate Scan Results Exist;
+
+if (Prediction Available?) then (yes)
+  :Determine Default Save Path;
+  note right
+    Default: Desktop/NeuroScan_Reports/
+    Filename: Report_[PatientName]_[Date].pdf
+  end note
+  
+  :Create Reports Directory\n(if not exists);
+  :Open File Save Dialog;
+  
+  |Medical Professional|
+  :Choose Save Location;
+  :Confirm Save;
+  
+  if (Save Cancelled?) then (yes)
+    stop
+  else (no - proceed)
+    |#AntiqueWhite|System|
+    :Create PDF Canvas;
+    
+    partition "Build PDF Document" {
+      :Add Header Section;
+      note right
+        - Logo image (if exists)
+        - "NeuroScan AI" title
+        - Subtitle line
+        - Horizontal separator
+      end note
+      
+      :Add Patient Details Block;
+      note right
+        - Full Name, Age
+        - Gender, Phone
+        - Medical History
+      end note
+      
+      :Add Diagnostic Assessment;
+      note right
+        - Prediction class
+        - Confidence percentage
+        - Colored result box
+      end note
+      
+      :Save Images as Temp Files;
+      :Add Brain Imaging Section;
+      note right
+        - Original scan image
+        - AI attention heatmap
+        - Image labels
+      end note
+      
+      :Add Footer;
+      note right
+        - Doctor/Technician name
+        - Timestamp
+        - Disclaimer text
+      end note
+    }
+    
+    :Save PDF to Disk;
+    :Delete Temporary Image Files;
+    
+    if (PDF Save Success?) then (yes)
+      |Medical Professional|
+      :Display Success Message;
+      :PDF File Created;
+      stop
+    else (no - error)
+      |Medical Professional|
+      :Display Error Message;
+      stop
+    endif
+  endif
+  
+else (no - no results)
+  |Medical Professional|
+  :Display Warning:\n"No Scan Results to Export";
+  stop
+endif
+
+@enduml
+
+' ============================================
+' ACTIVITY DIAGRAM 5: VIEW REPORT FROM HISTORY
+' ============================================
+@startuml Activity Diagram 5: View Report from History
+
+title Activity Diagram 5: View Report from History
+
+|Medical Professional|
+start
+:Navigate to "History" Screen;
+
+|#AntiqueWhite|System|
+:Query Database for All Reports;
+:Order by Created Date (DESC);
+:Load Report List;
+
+if (Reports Exist?) then (yes)
+  :Display Reports in Scrollable List;
+  note right
+    Each row shows:
+    - Patient Name
+    - Date
+    - Prediction
+    - Quick view button
+  end note
+  
+  |Medical Professional|
+  :Browse Report List;
+  :Click on Report Row;
+  
+  |#AntiqueWhite|System|
+  :Create Detail Window;
+  :Query Full Report Data;
+  :Load Image BLOBs from Database;
+  
+  partition "Display Report Details" {
+    :Show Header with Branding;
+    :Display Patient Information Grid;
+    note right
+      - Name, Age, Gender, Phone
+    end note
+    
+    :Display Diagnosis Section;
+    note right
+      - Prediction (color-coded)
+      - Confidence percentage
+    end note
+    
+    :Display Medical History;
+    
+    :Convert BLOBs to Images;
+    :Display Original Scan;
+    :Display AI Heatmap;
+    
+    :Show Timestamp & Creator;
+    :Add Re-export Button;
+  }
+  
+  |Medical Professional|
+  
+  if (User Action?) then (Re-export PDF)
+    :Click "Reprint/Export PDF";
+    |#AntiqueWhite|System|
+    :Load Report Data;
+    :Trigger PDF Generation;
+    note right: Uses same PDF export flow
+    :Save PDF to User-Selected Location;
+    |Medical Professional|
+    :Receive PDF File;
+  elseif (Close Window) then
+    :Close Detail Window;
+  endif
+  
+  stop
+  
+else (no - empty history)
+  :Display "No Reports Found" Message;
+  stop
+endif
+
+@enduml
+
+' ============================================
+' ACTIVITY DIAGRAM 6: SEARCH REPORTS IN HISTORY
+' ============================================
+@startuml Activity Diagram 6: Search Reports in History
+
+title Activity Diagram 6: Search and Filter Reports
+
+|Medical Professional|
+start
+:Navigate to "History" Screen;
+
+|#AntiqueWhite|System|
+:Load All Reports from Database;
+:Store in Memory (all_reports);
+:Display Full Report List;
+
+|Medical Professional|
+
+fork
+  :Type in Search Box;
+  |#AntiqueWhite|System|
+  :Capture Search Input (Real-time);
+  note right
+    StringVar trace callback
+    triggers on every keystroke
+  end note
+  
+  :Convert Search Term to Lowercase;
+  
+  if (Search Term Empty?) then (yes)
+    :Display All Reports;
+  else (no)
+    :Filter Reports by Patient Name;
+    note right
+      Case-insensitive substring match
+      in patient_name field
+    end note
+    
+    :Update Display with Filtered Results;
+  endif
+  
+fork again
+  :Select Sort Option;
+  note right
+    Options:
+    - Newest First
+    - Oldest First
+    - Name A-Z
+  end note
+  
+  |#AntiqueWhite|System|
+  
+  if (Sort Option?) then (Newest First)
+    :Sort by created_at DESC;
+  elseif (Oldest First) then
+    :Sort by created_at ASC;
+  elseif (Name A-Z) then
+    :Sort by patient_name ASC;
+  endif
+  
+  :Re-render Report List;
+end fork
+
+|Medical Professional|
+:View Filtered/Sorted Results;
+
+if (Found Desired Report?) then (yes)
+  :Click on Report;
+  :View Report Details;
+  note right: See Activity Diagram 5
+  stop
+else (no)
+  :Adjust Search/Sort Criteria;
+  note right: Loop back to search/sort
+endif
+
+@enduml
+
+' ============================================
+' ACTIVITY DIAGRAM 7: SAVE REPORT TO DATABASE
+' ============================================
+@startuml Activity Diagram 7: Save Report to Database
+
+title Activity Diagram 7: Save Report to Database
+
+|Medical Professional|
+start
+:Click "Save to Database" Button;
+
+|#AntiqueWhite|System|
+:Validate Prediction Exists;
+
+if (Scan Results Available?) then (yes)
+  :Display Password Confirmation Dialog;
+  
+  |Medical Professional|
+  :Enter Password;
+  
+  |#AntiqueWhite|System|
+  :Validate Password Against Current User;
+  
+  if (Password Correct?) then (yes)
+    :Create Database Session;
+    
+    partition "Prepare Report Data" {
+      :Collect Patient Information;
+      note right
+        - Name, Age, Gender, Phone
+        - Medical History
+      end note
+      
+      :Collect Diagnostic Results;
+      note right
+        - Prediction class
+        - Confidence score
+      end note
+      
+      :Convert Original Image to BLOB;
+      note right
+        PIL Image → BytesIO → JPEG bytes
+      end note
+      
+      :Convert Heatmap Image to BLOB;
+      
+      :Set Creator User ID;
+      :Set Timestamp (UTC);
+    }
+    
+    :Create Report Object;
+    :Add to Database Session;
+    :Commit Transaction;
+    
+    if (Commit Success?) then (yes)
+      |Medical Professional|
+      :Display Success Message;
+      :Report Saved;
+      stop
+    else (no - database error)
+      |#AntiqueWhite|System|
+      :Rollback Transaction;
+      |Medical Professional|
+      :Display Error Message;
+      stop
+    endif
+    
+  else (no - wrong password)
+    |Medical Professional|
+    :Display Error:\n"Incorrect Password";
+    :Return to Scan Screen;
+    stop
+  endif
+  
+else (no - no results)
+  |Medical Professional|
+  :Display Warning:\n"Please Run a Scan First";
+  stop
+endif
+
+@enduml
+
+' ============================================
+' BONUS: SYSTEM INITIALIZATION
+' ============================================
+@startuml Activity Diagram 8: System Initialization
+
+title Activity Diagram 8: System Initialization (Bonus)
+
+|#AntiqueWhite|System|
+start
+:Launch Application;
+
+fork
+  :Initialize Database Connection;
+  :Check PostgreSQL Connection;
+  
+  if (Database Exists?) then (no)
+    :Create Database "azdDB";
+  endif
+  
+  :Create Tables (if not exist);
+  note right
+    - users table
+    - reports table
+  end note
+  
+  :Check for Superadmin;
+  
+  if (Admin User Exists?) then (no)
+    :Create Default Admin;
+    note right
+      Username: admin
+      Password: admin
+    end note
+  endif
+  
+fork again
+  :Initialize AI Model (Background Thread);
+  :Load ResNet50 Architecture;
+  :Load Trained Weights;
+  :Set Model to Evaluation Mode;
+  :Move Model to CPU;
+  :Register as Ready;
+  note right
+    Model loading happens asynchronously
+    to avoid blocking UI
+  end note
+end fork
+
+:Initialize GUI;
+:Set Window Properties;
+:Apply Color Scheme;
+:Show Login Screen;
+
+|User|
+:Application Ready;
+stop
+
+@enduml
+
+@enduml
